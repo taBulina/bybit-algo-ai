@@ -4,7 +4,6 @@ import { BybitApiClient } from './bybit-api-client';
 import { MarketManager } from './market-manager';
 import { Logger } from './logger';
 import {BybitRestSingleton} from "./singleton-clients";
-
 async function main() {
     try {
         // Создаем экземпляр клиента Bybit API
