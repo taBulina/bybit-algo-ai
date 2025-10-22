@@ -1,34 +1,36 @@
-// src/main.ts
-
-import { BybitApiClient } from './bybit-api-client';
+import { BybitRestSingleton, BybitWsSingleton } from './singleton-clients';
 import { MarketManager } from './market-manager';
 import { Logger } from './logger';
-import {BybitRestSingleton} from "./singleton-clients";
+import { MarketsConfig, StatisticsIntervalMinutes } from './config';
+import { BybitApiClient } from './bybit-api-client';
+import { TradingBot } from './trading-bot';
+import { WebsocketListener } from './websocket-listener';
+
 async function main() {
-    try {
-        // Создаем экземпляр клиента Bybit API
-        const apiClient = new BybitApiClient(BybitRestSingleton.getInstance());
+    const apiClient = new BybitApiClient(BybitRestSingleton.getInstance());
+    const marketManager = MarketManager.getInstance(apiClient);
 
-        // Получаем синглтон менеджера рынков
-        const marketManager = MarketManager.getInstance(apiClient);
+    const wsPrivate = BybitWsSingleton.getPrivateInstance();
+    const wsPublic = BybitWsSingleton.getPublicInstance();
 
-        // Загружаем информацию по инструментам
-        await marketManager.loadInstrumentInfoForAllMarkets();
+    // Инициируем и настраиваем WebSocketListener
+    const wsListener = new WebsocketListener(wsPrivate, wsPublic, MarketsConfig);
 
-        // Перезагружаем данные о позициях и ордерах
-        await marketManager.reloadAllMarketsData();
-        await marketManager.reloadAllOrdersData();
+    // Регистрируем wsListener в MarketManager для работы с данными
+    marketManager.registerWebSocketListener(wsListener);
 
-        // Настраиваем вывод статистики каждые 10 минут
-        marketManager.setStatisticsInterval(10);
-        marketManager.startPeriodicStatsPrint();
+    // Запускаем подключения к WebSocket
+    await wsListener.connect();
 
-        Logger.info('Инициализация завершена, бот запущен.');
-    } catch (error) {
-        Logger.error('Ошибка инициализации проекта:', error);
-        process.exit(1); // Завершение приложения с ошибкой
-    }
+    // Перезагружаем все данные
+    await marketManager.reloadAllMarketsData();
+
+    marketManager.setStatisticsInterval(StatisticsIntervalMinutes);
+    marketManager.startPeriodicStatsPrint();
+
+    // Например для старта бота
+    const market = marketManager.getMarket('XRPUSDT');
+    const tradingBot = new TradingBot(market, apiClient);
 }
 
-// Запуск основной функции
-main();
+main().catch(Logger.error);

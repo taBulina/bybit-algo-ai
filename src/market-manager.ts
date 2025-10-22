@@ -4,48 +4,39 @@ import { Market, mapPositionV5ToPositionData } from './market';
 import { BybitApiClient } from './bybit-api-client';
 import { Logger } from './logger';
 import { LinearInverseInstrumentInfoV5 } from 'bybit-api';
-import { StatisticsIntervalMinutes, MarketsConfig } from './config';
+import { StatisticsIntervalMinutes } from './config';
 import { OrderData } from './dto/order';
 import { InstrumentInfo } from './dto/instrument';
+import {Interval} from "./dto/interval";
 
 export class MarketManager {
     private static instance: MarketManager;
     private markets: Map<string, Market> = new Map();
-
     private apiClient: BybitApiClient;
-
     private statisticsIntervalMs: number = StatisticsIntervalMinutes * 60 * 1000;
     private statisticsIntervalId: NodeJS.Timeout | null = null;
 
     private constructor(apiClient: BybitApiClient) {
         this.apiClient = apiClient;
-        MarketsConfig.forEach(config => {
-            if (!this.markets.has(config.symbol)) {
-                this.markets.set(config.symbol, new Market(config.symbol));
-                Logger.info(`Market created from config: ${config.symbol}`);
-            }
-        });
     }
 
     public static getInstance(apiClient?: BybitApiClient): MarketManager {
         if (!MarketManager.instance) {
-            if (!apiClient) throw new Error('MarketManager требует apiClient при первой инициализации');
+            if (!apiClient) throw new Error('MarketManager requires apiClient at first initialization');
             MarketManager.instance = new MarketManager(apiClient);
         }
         return MarketManager.instance;
     }
 
-    getMarket(symbol: string): Market {
+    public getMarket(symbol: string): Market {
         if (!this.markets.has(symbol)) {
             this.markets.set(symbol, new Market(symbol));
-            Logger.info(`Создан новый рынок: ${symbol}`);
+            Logger.info(`New market created: ${symbol}`);
         }
         return this.markets.get(symbol)!;
     }
 
     public handlePrivateWsUpdate(data: any) {
-        Logger.info(`Cообщение из топика ${data?.topi}`);
-
         if (!data?.topic) return;
 
         if (data.topic.startsWith('position')) {
@@ -58,44 +49,38 @@ export class MarketManager {
 
         if (data.topic.startsWith('order')) {
             const updates: OrderData[] = Array.isArray(data.data) ? data.data : [data.data];
-            updates.forEach((order: OrderData) => this.getMarket(order.symbol).updateOrderFromWs(order));
+            updates.forEach((orderDataRaw: any) => {
+                const orderData: OrderData = {
+                    orderId: orderDataRaw.orderId,
+                    side: orderDataRaw.side,
+                    price: Number(orderDataRaw.price),
+                    qty: Number(orderDataRaw.qty),
+                    status: orderDataRaw.orderStatus,
+                    symbol: orderDataRaw.symbol,
+                    createdTime: Number(orderDataRaw.createdTime ?? Date.now()),
+                    updatedTime: Number(orderDataRaw.updatedTime ?? Date.now()),
+                };
+                this.getMarket(orderData.symbol).updateOrderFromRest(orderData);
+            });
         }
     }
 
     private mapApiInfoToInstrumentInfo(apiInfo: LinearInverseInstrumentInfoV5): InstrumentInfo {
-        if (
-            !apiInfo.symbol ||
-            !apiInfo.contractType ||
-            !apiInfo.status ||
-            apiInfo.baseCoin === undefined ||
-            apiInfo.quoteCoin === undefined ||
-            !apiInfo.priceFilter ||
-            apiInfo.priceFilter.minPrice === undefined ||
-            apiInfo.priceFilter.maxPrice === undefined ||
-            apiInfo.priceFilter.tickSize === undefined ||
-            !apiInfo.lotSizeFilter ||
-            apiInfo.lotSizeFilter.maxOrderQty === undefined ||
-            apiInfo.lotSizeFilter.minOrderQty === undefined ||
-            apiInfo.lotSizeFilter.qtyStep === undefined
-        ) {
-            throw new Error(`Отсутствуют необходимые поля данных инструмента для символа ${apiInfo.symbol}`);
-        }
-
         return {
             symbol: apiInfo.symbol,
             contractType: apiInfo.contractType,
             status: apiInfo.status,
-            baseCurrency: apiInfo.baseCoin,
-            quoteCurrency: apiInfo.quoteCoin,
+            baseCurrency: apiInfo.baseCoin ?? '',
+            quoteCurrency: apiInfo.quoteCoin ?? '',
             priceFilter: {
-                minPrice: Number(apiInfo.priceFilter.minPrice),
-                maxPrice: Number(apiInfo.priceFilter.maxPrice),
-                tickSize: Number(apiInfo.priceFilter.tickSize),
+                minPrice: Number(apiInfo.priceFilter?.minPrice ?? 0),
+                maxPrice: Number(apiInfo.priceFilter?.maxPrice ?? 0),
+                tickSize: Number(apiInfo.priceFilter?.tickSize ?? 0),
             },
             lotSizeFilter: {
-                maxOrderQty: Number(apiInfo.lotSizeFilter.maxOrderQty),
-                minOrderQty: Number(apiInfo.lotSizeFilter.minOrderQty),
-                qtyStep: Number(apiInfo.lotSizeFilter.qtyStep),
+                maxOrderQty: Number(apiInfo.lotSizeFilter?.maxOrderQty ?? 0),
+                minOrderQty: Number(apiInfo.lotSizeFilter?.minOrderQty ?? 0),
+                qtyStep: Number(apiInfo.lotSizeFilter?.qtyStep ?? 0),
             },
         };
     }
@@ -112,59 +97,37 @@ export class MarketManager {
                 const market = this.getMarket(info.symbol);
                 market.setInstrumentInfo(info);
             });
-            Logger.info(`Загружена информация по ${linearInstruments.length} линейным рынкам`);
+
+            Logger.info(`Loaded instrument info for ${linearInstruments.length} linear markets`);
         } catch (err) {
-            Logger.error('Ошибка загрузки информации по инструментам:', err);
+            Logger.error('Error loading instruments info:', err);
         }
     }
 
     async reloadAllMarketsData() {
-        Logger.info('Перезагрузка данных о позициях всех рынков...');
+        Logger.info('Reloading all market data from REST API...');
         const markets = this.getAllMarkets();
-
         for (const market of markets) {
             try {
-                const positionsRaw: any[] = await this.apiClient.getPositionsInfo(market.symbol);
-                if (positionsRaw) {
-                    for (const positionRaw of positionsRaw) {
-                        const positionData = mapPositionV5ToPositionData(positionRaw);
-                        if (
-                            (positionData.side === 'Buy' || positionData.side === 'Sell') &&
-                            positionData.size &&
-                            positionData.size > 0
-                        ) {
-                            market.updatePositionFromWs(positionData);
-                        }
-                    }
+                const positionDataRaw = await this.apiClient.getPositionsInfo(market.symbol);
+                if (positionDataRaw) {
+                    const positionData = mapPositionV5ToPositionData(positionDataRaw);
+                    market.updatePositionFromWs(positionData);
                 }
             } catch (err) {
-                Logger.error(`Ошибка загрузки позиций для рынка ${market.symbol}:`, err);
+                Logger.error(`Error loading position data for market ${market.symbol}:`, err);
             }
         }
-        Logger.info('Перезагрузка данных позиций завершена.');
+        Logger.info('Reloading market data completed.');
     }
 
     async reloadAllOrdersData() {
-        Logger.info('Перезагрузка данных об ордерах всех рынков...');
+        Logger.info('Reloading all orders data from REST API...');
         const markets = this.getAllMarkets();
-
         for (const market of markets) {
             try {
                 const ordersResp = await this.apiClient.getActiveOrders('linear', market.symbol);
                 ordersResp.forEach((orderDataRaw: any) => {
-                    if (
-                        orderDataRaw.orderId === undefined ||
-                        orderDataRaw.side === undefined ||
-                        orderDataRaw.price === undefined ||
-                        orderDataRaw.qty === undefined ||
-                        orderDataRaw.orderStatus === undefined ||
-                        orderDataRaw.symbol === undefined ||
-                        orderDataRaw.createdTime === undefined ||
-                        orderDataRaw.updatedTime === undefined
-                    ) {
-                        throw new Error(`Неполные данные ордера для символа ${market.symbol}`);
-                    }
-
                     const orderData: OrderData = {
                         orderId: orderDataRaw.orderId,
                         side: orderDataRaw.side,
@@ -172,16 +135,16 @@ export class MarketManager {
                         qty: Number(orderDataRaw.qty),
                         status: orderDataRaw.orderStatus,
                         symbol: orderDataRaw.symbol,
-                        createdTime: Number(orderDataRaw.createdTime),
-                        updatedTime: Number(orderDataRaw.updatedTime),
+                        createdTime: Number(orderDataRaw.createdTime ?? Date.now()),
+                        updatedTime: Number(orderDataRaw.updatedTime ?? Date.now()),
                     };
                     market.updateOrderFromRest(orderData);
                 });
             } catch (err) {
-                Logger.error(`Ошибка загрузки ордеров для рынка ${market.symbol}:`, err);
+                Logger.error(`Error loading orders for market ${market.symbol}:`, err);
             }
         }
-        Logger.info('Перезагрузка данных ордеров завершена.');
+        Logger.info('Reloading orders data completed.');
     }
 
     getAllMarkets(): Market[] {
@@ -201,10 +164,21 @@ export class MarketManager {
             clearInterval(this.statisticsIntervalId);
         }
         this.statisticsIntervalId = setInterval(() => {
-            Logger.info('--- Статистика позиций всех рынков ---');
+            Logger.info('--- Статистика позиций по всем рынкам ---');
             for (const market of this.getAllMarkets()) {
                 market.printPositionsSummary();
             }
         }, this.statisticsIntervalMs);
+    }
+
+    public registerWebSocketListener(wsListener: any) {
+        wsListener.on('candleUpdate', ({ symbol, interval, candle }: { symbol: string; interval: string; candle: any }) => {
+            const market = this.getMarket(symbol);
+            if (market) {
+                // Преобразуем строковый интервал в Interval тип
+                const typedInterval = interval as Interval;
+                market.updateCandle(typedInterval, candle);
+            }
+        });
     }
 }

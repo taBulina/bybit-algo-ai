@@ -1,30 +1,7 @@
 // src/candles.ts
 import { Candle } from '../dto/candle';
 
-export interface Indicator {
-    /**
-     * Обновляет или добавляет данные индикатора.
-     * @param timestamp Временная метка (например, начало свечи) в миллисекундах.
-     * @param candleData Полный объект свечи с обязательными полями.
-     * @throws {Error} Если данным не хватает обязательных параметров.
-     */
-    update(timestamp: number, candleData: Candle): void;
-
-    /**
-     * Возвращает текущие данные индикатора.
-     * @returns Массив свечей с полной историей.
-     */
-    getValue(): Candle[];
-
-    /**
-     * Возвращает последние N значений индикатора.
-     * @param count Количество последних элементов истории.
-     * @returns Массив свечей длиной не более count.
-     */
-    getHistory?(count: number): Candle[];
-}
-
-export class CandlesIndicator implements Indicator {
+export class CandlesIndicator {
     private candles: Candle[] = [];
     private maxSize: number;
 
@@ -44,16 +21,16 @@ export class CandlesIndicator implements Indicator {
      *  time, open, high, low, close, volume, turnover, confirm, rate
      * @throws {Error} Если отсутствует хотя бы одно обязательное поле.
      */
-    update(timestamp: number, candleData: Candle) {
+    update(candleData: Candle) {
         if (
             candleData.open === undefined || candleData.high === undefined || candleData.low === undefined ||
             candleData.close === undefined || candleData.volume === undefined || candleData.turnover === undefined ||
-            candleData.confirm === undefined || candleData.rate === undefined || candleData.time !== timestamp
+            candleData.confirm === undefined || candleData.rate === undefined
         ) {
             throw new Error('Свеча неполная или неконсистентная для обновления');
         }
 
-        const idx = this.candles.findIndex(c => c.time === timestamp);
+        const idx = this.candles.findIndex(c => c.open === candleData.open);
 
         if (idx >= 0) {
             this.candles[idx] = candleData;
@@ -70,7 +47,7 @@ export class CandlesIndicator implements Indicator {
      * @param candles Массив свечей с обязательными полями.
      */
     bulkUpdate(candles: Candle[]) {
-        candles.forEach(candle => this.update(candle.time, candle));
+        candles.forEach(candle => this.update(candle));
     }
 
     /**

@@ -92,7 +92,7 @@ export class Market {
 
     private maxCandles: number;
 
-    private instrumentInfo: InstrumentInfo | null = null;
+    private instrumentInfo: InstrumentInfo | undefined = undefined;
 
     constructor(symbol: string) {
         this.symbol = symbol;
@@ -126,14 +126,14 @@ export class Market {
             this.candlesIndicators.get(interval)?.bulkUpdate(cappedCandles);
 
             cappedCandles.forEach(candle => {
-                const timestamp = candle.time;
+                const timestamp = candle.open;
                 const price = candle.close;
                 const confirmed = candle.confirm ?? true;
 
                 this.indicatorsManager.update(interval, timestamp, price, confirmed);
             });
 
-            Logger.info(`[${this.symbol}] Loaded ${cappedCandles.length} candles for interval ${interval} from REST API and updated indicators`);
+            //Logger.info(`[${this.symbol}] Loaded ${cappedCandles.length} candles for interval ${interval} from REST API and updated indicators`);
         } catch (err) {
             Logger.error(`[${this.symbol}] Failed to load candles for interval ${interval}:`, err);
         }
@@ -143,8 +143,7 @@ export class Market {
         const candlesIndicator = this.candlesIndicators.get(interval);
 
         if (candlesIndicator) {
-            candlesIndicator.update(candleData.time ?? candleData.start, {
-                time: Number(candleData.time),
+            candlesIndicator.update( {
                 open: Number(candleData.open),
                 high: Number(candleData.high),
                 low: Number(candleData.low),
@@ -237,8 +236,25 @@ export class Market {
         }
     }
 
-    updateOrderFromRest(order: OrderData) {
-        this.updateOrderFromWs(order);
+    /**
+     * Обновляет или добавляет ордер в Map по orderId.
+     */
+    public updateOrderFromRest(order: OrderData) {
+        this.orders.set(order.orderId, order);
+    }
+
+    /**
+     * Возвращает массив всех ордеров.
+     */
+    public getOrders(): OrderData[] {
+        return Array.from(this.orders.values());
+    }
+
+    /**
+     * Получает информацию об инструменте.
+     */
+    getInstrumentInfo(): InstrumentInfo | undefined {
+        return this.instrumentInfo;
     }
 
     setInstrumentInfo(info: InstrumentInfo) {

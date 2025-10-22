@@ -110,4 +110,4 @@ async function main(params: StatsParams) {
 // Примеры использования:
 // main({ hours: 6 });                             // за последние 6 часов
 // main({ hours: 1, minutes: 30 });                // за последние 1.5 часа
-main({ startMskTime: '2025-10-21 11:00' });     // от конкретного МСК времени
+main({ startMskTime: '2025-10-22 00:00' });     // от конкретного МСК времени
