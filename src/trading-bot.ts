@@ -1,19 +1,36 @@
-import { Market } from './market';
-import { InstrumentInfo } from './dto/instrument';
-import { OrderData } from './dto/order';
+import {Market} from './market';
+import {InstrumentInfo} from './dto/instrument';
+import {OrderData} from './dto/order';
+import {Interval} from "./dto/interval";
+import {WebsocketListener} from "./websocket-listener";
+
 
 export class TradingBot {
-    private market: Market;
     private instrumentInfo?: InstrumentInfo;
 
     /**
-     * Конструктор бота принимает текущий рынок и API клиента (если нужен)
-     * @param market Экземпляр рынка для торговли
-     * @param apiClient Клиент API (может использоваться для заявок)
+     * Конструктор торгового бота.
+     *
+     * @param market - Экземпляр класса Market с данными и логикой рынка.
+     * @param apiClient - Клиент для взаимодействия с биржевым API.
+     * @param wsListener - Экземпляр WebscketListener для обработки событий WebSocket.
      */
-    constructor(market: Market, apiClient: any) {
-        this.market = market;
-        this.instrumentInfo = market.getInstrumentInfo();
+    /**
+     * Конструктор торгового бота.
+     * @param market - Инстанс класса Market для управления данными.
+     * @param apiClient - Клиент API биржи.
+     * @param wsListener - Инстанс WebscketListener для событий WebSocket.
+     */
+    constructor(
+        private market: Market,
+        private apiClient: any,
+        private wsListener: WebsocketListener // исправлено название
+    ) {
+        // Подписка на событие обновления свечей
+        this.wsListener.on('candleUpdate', (update: { symbol: string; interval: string; candle: any }) => {
+            // В классе Market есть метод updateCandle, принимающий свечу для интервала
+            this.analyzeAndTrade();
+        });
     }
 
     /**
@@ -44,6 +61,8 @@ export class TradingBot {
     async analyzeAndTrade() {
         // Пример получения текущей цены или индикаторов из market
         // Можно использовать индикаторы EMA, MACD и т.д.
+
+        this.market.printCandles(Interval.Min1)
         const instrument = this.instrumentInfo;
         if (!instrument) {
             console.log('No instrument info available, skipping trading');

@@ -1,5 +1,6 @@
 // src/candles.ts
-import { Candle } from '../dto/candle';
+import {Candle} from '../dto/candle';
+import {Interval} from "../dto/interval";
 
 export class CandlesIndicator {
     private candles: Candle[] = [];
@@ -25,12 +26,12 @@ export class CandlesIndicator {
         if (
             candleData.open === undefined || candleData.high === undefined || candleData.low === undefined ||
             candleData.close === undefined || candleData.volume === undefined || candleData.turnover === undefined ||
-            candleData.confirm === undefined || candleData.rate === undefined
+            candleData.confirm === undefined || candleData.rate === undefined || candleData.startTime == undefined
         ) {
             throw new Error('Свеча неполная или неконсистентная для обновления');
         }
 
-        const idx = this.candles.findIndex(c => c.open === candleData.open);
+        const idx = this.candles.findIndex(c => c.startTime === candleData.startTime);
 
         if (idx >= 0) {
             this.candles[idx] = candleData;
@@ -76,4 +77,36 @@ export class CandlesIndicator {
     getHistory(count: number): Candle[] {
         return this.candles.slice(0, count);
     }
+
+    /**
+     * Печатает свечи для указанного интервала.
+     * @param interval Интервал свечей.
+     * @param count Количество свечей для печати (по умолчанию все).
+     */
+    public printCandles(interval: Interval, count?: number): void {
+        const candles = this.candles;
+        if (!candles || candles.length === 0) {
+            console.log(`Свечи для интервала ${interval} отсутствуют.`);
+            return;
+        }
+
+        const candlesToPrint = count ? candles.slice(-count) : candles;
+
+        console.log(`Свечи для интервала ${interval} (всего: ${candles.length}):`);
+
+        candlesToPrint.forEach(candle => {
+            const dateUTC = new Date(candle.startTime);
+            const moscowOffsetMs = 3 * 60 * 60 * 1000; // +3 часа в мс
+            const moscowTime = new Date(dateUTC.getTime() + moscowOffsetMs);
+
+            const moscowTimeStr = moscowTime.toISOString().replace('T', ' ').slice(0, 19);
+
+            console.log(
+                `Start time: ${moscowTimeStr}, ` +
+                `O: ${candle.open}, H: ${candle.high}, L: ${candle.low}, C: ${candle.close}, ` +
+                `R: ${candle.rate.toFixed(4)}, Vol: ${candle.volume}`
+            );
+        });
+    }
+
 }

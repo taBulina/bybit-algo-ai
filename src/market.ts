@@ -144,6 +144,7 @@ export class Market {
 
         if (candlesIndicator) {
             candlesIndicator.update( {
+                startTime: Number(candleData.start),
                 open: Number(candleData.open),
                 high: Number(candleData.high),
                 low: Number(candleData.low),
@@ -155,7 +156,7 @@ export class Market {
             });
         }
 
-        this.indicatorsManager.update(interval, candleData.time ?? candleData.start, Number(candleData.close), candleData.confirm);
+        this.indicatorsManager.update(interval, candleData.start, Number(candleData.close), candleData.confirm);
     }
 
     getCandles(interval: string): Candle[] {
@@ -316,5 +317,10 @@ export class Market {
         Logger.info(`Общий uPnL по LONG: ${colorize(longPnL)}`);
         Logger.info(`Общий uPnL по SHORT: ${colorize(shortPnL)}`);
         Logger.info(`ОБщий uPnL: ${colorize(totalPnL)}`);
+    }
+
+    public printCandles(interval: Interval, count?: number): void {
+        console.log(`Печать свечей для рынка ${this.symbol}:`);
+        this.candlesIndicators.get(interval)?.printCandles(interval, count);
     }
 }

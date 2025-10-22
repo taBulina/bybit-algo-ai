@@ -64,7 +64,7 @@ export class BybitApiClientInternal {
 
             const result = resp.result.list.map((element: any) => ({
 
-                time: parseInt(element[0]),
+                startTime: parseInt(element[0]),
                 open: parseFloat(element[1]),
                 high: parseFloat(element[2]),
                 low: parseFloat(element[3]),

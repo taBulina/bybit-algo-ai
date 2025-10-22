@@ -30,7 +30,7 @@ async function main() {
 
     // Например для старта бота
     const market = marketManager.getMarket('XRPUSDT');
-    const tradingBot = new TradingBot(market, apiClient);
+    const tradingBot = new TradingBot(market, apiClient, wsListener);
 }
 
 main().catch(Logger.error);

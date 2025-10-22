@@ -1,4 +1,5 @@
 export interface Candle {
+    startTime: number;  // время открытия
     open: number;       // Цена открытия
     high: number;       // Максимальная цена
     low: number;        // Минимальная цена

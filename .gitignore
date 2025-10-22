@@ -4,3 +4,4 @@
 /logs/
 prod.env
 test.env
+.env
