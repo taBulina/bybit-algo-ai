@@ -3,6 +3,7 @@ import {InstrumentInfo} from './dto/instrument';
 import {OrderData} from './dto/order';
 import {Interval} from "./dto/interval";
 import {WebsocketListener} from "./websocket-listener";
+import {Logger} from "./logger";
 
 
 export class TradingBot {
@@ -62,7 +63,12 @@ export class TradingBot {
         // Пример получения текущей цены или индикаторов из market
         // Можно использовать индикаторы EMA, MACD и т.д.
 
-        this.market.printCandles(Interval.Min1)
+        this.market.printCandles(Interval.Min1, 1);
+
+        const ema = this.market.getEma(Interval.Min1);
+        const macd =this.market.getMacd(Interval.Min1);
+        const maCross = this.market.getMaCrossState(Interval.Min1);
+        Logger.info(`[${this.market.symbol}] EMA: ${ema}, MACD: ${macd}, maCross: ${maCross}`);
         const instrument = this.instrumentInfo;
         if (!instrument) {
             console.log('No instrument info available, skipping trading');

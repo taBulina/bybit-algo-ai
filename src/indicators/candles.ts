@@ -83,7 +83,7 @@ export class CandlesIndicator {
      * @param interval Интервал свечей.
      * @param count Количество свечей для печати (по умолчанию все).
      */
-    public printCandles(interval: Interval, count?: number): void {
+    public print(interval: Interval, count?: number): void {
         const candles = this.candles;
         if (!candles || candles.length === 0) {
             console.log(`Свечи для интервала ${interval} отсутствуют.`);

@@ -45,37 +45,6 @@ export class MarketManager {
         return this.markets.get(symbol)!;
     }
 
-    public handlePrivateWsUpdate(data: any) {
-        if (!data?.topic) return;
-
-        if (data.topic.startsWith('position')) {
-            const updatesRaw: any[] = Array.isArray(data.data) ? data.data : [data.data];
-            updatesRaw.forEach((rawPos: any) => {
-                const pos = mapPositionV5ToPositionData(rawPos);
-                this.getMarket(pos.symbol).updatePositionFromWs(pos);
-            });
-        }
-
-        if (data.topic.startsWith('order')) {
-            const updates: OrderData[] = Array.isArray(data.data) ? data.data : [data.data];
-            updates.forEach((orderDataRaw: any) => {
-                const orderData: OrderData = {
-                    orderId: orderDataRaw.orderId,
-                    side: orderDataRaw.side,
-                    price: Number(orderDataRaw.price),
-                    qty: Number(orderDataRaw.qty),
-                    status: orderDataRaw.orderStatus,
-                    symbol: orderDataRaw.symbol,
-                    createdTime: Number(orderDataRaw.createdTime ?? Date.now()),
-                    updatedTime: Number(orderDataRaw.updatedTime ?? Date.now()),
-                };
-                this.getMarket(orderData.symbol).updateOrderFromRest(orderData);
-            });
-        }
-
-        // TODO add storing ticker info
-    }
-
     private mapApiInfoToInstrumentInfo(apiInfo: LinearInverseInstrumentInfoV5): InstrumentInfo {
         return {
             symbol: apiInfo.symbol,
@@ -96,24 +65,24 @@ export class MarketManager {
         };
     }
 
-    async loadInstrumentInfoForAllMarkets() {
-        try {
-            const instruments = await this.apiClient.getInstrumentsInfo('linear');
-            const linearInstruments = instruments.filter(
-                (item: any): item is LinearInverseInstrumentInfoV5 => 'contractType' in item
-            );
-
-            linearInstruments.forEach((apiInfo: LinearInverseInstrumentInfoV5) => {
-                const info = this.mapApiInfoToInstrumentInfo(apiInfo);
-                const market = this.getMarket(info.symbol);
-                market.setInstrumentInfo(info);
-            });
-
-            Logger.info(`Loaded instrument info for ${linearInstruments.length} linear markets`);
-        } catch (err) {
-            Logger.error('Error loading instruments info:', err);
-        }
-    }
+    // async loadInstrumentInfoForAllMarkets() {
+    //     try {
+    //         const instruments = await this.apiClient.getInstrumentsInfo('linear');
+    //         const linearInstruments = instruments.filter(
+    //             (item: any): item is LinearInverseInstrumentInfoV5 => 'contractType' in item
+    //         );
+    //
+    //         linearInstruments.forEach((apiInfo: LinearInverseInstrumentInfoV5) => {
+    //             const info = this.mapApiInfoToInstrumentInfo(apiInfo);
+    //             const market = this.getMarket(info.symbol);
+    //             market.setInstrumentInfo(info);
+    //         });
+    //
+    //         Logger.info(`Loaded instrument info for ${linearInstruments.length} linear markets`);
+    //     } catch (err) {
+    //         Logger.error('Error loading instruments info:', err);
+    //     }
+    // }
 
     async reloadAllMarketsData() {
         Logger.info('Reloading all market data from REST API...');

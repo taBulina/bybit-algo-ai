@@ -92,13 +92,13 @@ export class Market {
 
     private candlesIndicators: Map<string, CandlesIndicator> = new Map();
 
-    private intervals;
+    private intervals: Interval[];
 
     private candleHistoryLimit: number;
 
     private candleInitLimit: number;
 
-    constructor(config : MarketConfig) {
+    constructor(config: MarketConfig) {
         if (!config) throw new Error(`No config for market initialization`);
 
         this.symbol = config.symbol;
@@ -128,7 +128,6 @@ export class Market {
     }
 
 
-
     /**
      * Загружает свечи для указанных интервалов рынка.
      * Для каждого интервала вызывает loadCandlesFromRest.
@@ -144,13 +143,15 @@ export class Market {
             throw new Error(`[${this.symbol}] Ошибка: список интервалов пуст`);
         }
 
-        for (const interval of this.intervals) {
-            try {
-                await this.loadCandlesFromRest(interval, fetchCandles);
-            } catch (err) {
+        // Создаем массив промисов загрузки свечей для каждого интервала
+        const promises = this.intervals.map(interval =>
+            this.loadCandlesFromRest(interval, fetchCandles).catch(err => {
                 Logger.error(`[${this.symbol}] Ошибка загрузки свечей для интервала ${interval}:`, err);
-            }
-        }
+            })
+        );
+
+        // Ждем завершения всех загрузок параллельно
+        await Promise.all(promises);
     }
 
     async loadCandlesFromRest(
@@ -174,6 +175,7 @@ export class Market {
             //Logger.info(`[${this.symbol}] Loaded ${cappedCandles.length} candles for interval ${interval} from REST API and updated indicators`);
         } catch (err) {
             Logger.error(`[${this.symbol}] Failed to load candles for interval ${interval}:`, err);
+            throw err;  // Пробрасываем дальше для реакции менеджера
         }
     }
 
@@ -359,6 +361,6 @@ export class Market {
 
     public printCandles(interval: Interval, count?: number): void {
         console.log(`Печать свечей для рынка ${this.symbol}:`);
-        this.candlesIndicators.get(interval)?.printCandles(interval, count);
+        this.candlesIndicators.get(interval)?.print(interval, count);
     }
 }
