@@ -27,6 +27,7 @@ export interface MarketConfig {
     takeProfitPercents: number[];
     tradeIntervals: string[];
     candleHistoryLimit: number;
+    candleInitLimit: number;
     maxRetries: number;
     retryDelayMs: number;
     limitOrderPriceTickOffset: number;
@@ -46,7 +47,8 @@ export const MarketsConfig: MarketConfig[] = [
         trailingStopPercent: 0.015,
         takeProfitPercents: [0.01, 0.02, 0.03],
         tradeIntervals: ['1', '5', '15'],
-        candleHistoryLimit: 100,
+        candleHistoryLimit: 3,
+        candleInitLimit: 2,
         maxRetries: 10,
         retryDelayMs: 5000,
         limitOrderPriceTickOffset: 2,

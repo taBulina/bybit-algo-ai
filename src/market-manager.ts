@@ -1,13 +1,14 @@
 // src/market-manager.ts
 
-import { Market, mapPositionV5ToPositionData } from './market';
-import { BybitApiClient } from './bybit-api-client';
-import { Logger } from './logger';
-import { LinearInverseInstrumentInfoV5 } from 'bybit-api';
-import { StatisticsIntervalMinutes } from './config';
-import { OrderData } from './dto/order';
-import { InstrumentInfo } from './dto/instrument';
-import {Interval} from "./dto/interval";
+import {Market, mapPositionV5ToPositionData} from './market';
+import {BybitApiClient} from './bybit-api-client';
+import {Logger} from './logger';
+import {LinearInverseInstrumentInfoV5} from 'bybit-api';
+import {MarketsConfig, StatisticsIntervalMinutes} from './config';
+import {OrderData} from './dto/order';
+import {InstrumentInfo} from './dto/instrument';
+import {Interval, toIntervalByValue} from "./dto/interval";
+import {WebsocketListener} from "./websocket-listener";
 
 export class MarketManager {
     private static instance: MarketManager;
@@ -15,23 +16,31 @@ export class MarketManager {
     private apiClient: BybitApiClient;
     private statisticsIntervalMs: number = StatisticsIntervalMinutes * 60 * 1000;
     private statisticsIntervalId: NodeJS.Timeout | null = null;
+    private websocketListener: WebsocketListener;
 
-    private constructor(apiClient: BybitApiClient) {
+    constructor(apiClient: BybitApiClient, websocketListener: WebsocketListener) {
         this.apiClient = apiClient;
+        this.websocketListener = websocketListener;
+
+        for (const marketConfig of MarketsConfig) {
+            const market = new Market(marketConfig);
+            this.markets.set(marketConfig.symbol, market);
+        }
     }
 
-    public static getInstance(apiClient?: BybitApiClient): MarketManager {
+    public static getInstance(apiClient?: BybitApiClient, websocketListener?: WebsocketListener): MarketManager {
         if (!MarketManager.instance) {
             if (!apiClient) throw new Error('MarketManager requires apiClient at first initialization');
-            MarketManager.instance = new MarketManager(apiClient);
+            if (!websocketListener) throw new Error('MarketManager requires websocketListener at first initialization');
+
+            MarketManager.instance = new MarketManager(apiClient, websocketListener);
         }
         return MarketManager.instance;
     }
 
     public getMarket(symbol: string): Market {
         if (!this.markets.has(symbol)) {
-            this.markets.set(symbol, new Market(symbol));
-            Logger.info(`New market created: ${symbol}`);
+            throw new Error(`Маркет не найден ${symbol}`);
         }
         return this.markets.get(symbol)!;
     }
@@ -63,6 +72,8 @@ export class MarketManager {
                 this.getMarket(orderData.symbol).updateOrderFromRest(orderData);
             });
         }
+
+        // TODO add storing ticker info
     }
 
     private mapApiInfoToInstrumentInfo(apiInfo: LinearInverseInstrumentInfoV5): InstrumentInfo {
@@ -107,17 +118,23 @@ export class MarketManager {
     async reloadAllMarketsData() {
         Logger.info('Reloading all market data from REST API...');
         const markets = this.getAllMarkets();
+
         for (const market of markets) {
             try {
-                const positionDataRaw = await this.apiClient.getPositionsInfo(market.symbol);
-                if (positionDataRaw) {
-                    const positionData = mapPositionV5ToPositionData(positionDataRaw);
-                    market.updatePositionFromWs(positionData);
-                }
+                // const positionDataRaw = await this.apiClient.getPositionsInfo(market.symbol);
+                // if (positionDataRaw) {
+                //     const positionData = mapPositionV5ToPositionData(positionDataRaw);
+                //     market.updatePositionFromWs(positionData);
+                // }
+                const apiFetchCandles = this.apiClient.fetchCandles.bind(this.apiClient);
+                await market.loadAllIntervalsCandles(apiFetchCandles);
+
             } catch (err) {
                 Logger.error(`Error loading position data for market ${market.symbol}:`, err);
             }
         }
+
+        this.registerWebSocketListener();
         Logger.info('Reloading market data completed.');
     }
 
@@ -171,8 +188,12 @@ export class MarketManager {
         }, this.statisticsIntervalMs);
     }
 
-    public registerWebSocketListener(wsListener: any) {
-        wsListener.on('candleUpdate', ({ symbol, interval, candle }: { symbol: string; interval: string; candle: any }) => {
+    public registerWebSocketListener() {
+        this.websocketListener.on('candleUpdate', ({symbol, interval, candle}: {
+            symbol: string;
+            interval: string;
+            candle: any
+        }) => {
             const market = this.getMarket(symbol);
             if (market) {
                 // Преобразуем строковый интервал в Interval тип

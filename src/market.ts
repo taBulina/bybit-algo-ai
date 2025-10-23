@@ -1,18 +1,18 @@
+import {PositionData} from './dto/position';
+import {OrderData} from './dto/order';
+import {InstrumentInfo} from './dto/instrument';
+import {Candle} from './dto/candle';
 
-import { PositionData } from './dto/position';
-import { OrderData } from './dto/order';
-import { InstrumentInfo } from './dto/instrument';
-import { Candle } from './dto/candle';
+import {MarketConfig, MarketsConfig} from './config';
 
-import { MarketsConfig } from './config';
-
-import { MacdIndicator } from './indicators/macd-indicator';
-import { MultiPeriodEma } from './indicators/ema-indicator';
-import { MultiPeriodMaCross } from './indicators/ma-cross-indicator';
-import { CandlesIndicator } from './indicators/candles';
-import { IndicatorsManager } from './indicators-manager';
+import {MacdIndicator} from './indicators/macd-indicator';
+import {MultiPeriodEma} from './indicators/ema-indicator';
+import {MultiPeriodMaCross} from './indicators/ma-cross-indicator';
+import {CandlesIndicator} from './indicators/candles';
+import {IndicatorsManager} from './indicators-manager';
 import {Interval, toIntervalArray} from './dto/interval';
 import {Logger} from "./logger";
+import {config} from "winston";
 
 
 /**
@@ -21,11 +21,11 @@ import {Logger} from "./logger";
  */
 export function mapPositionV5ToPositionData(rawPos: any): PositionData {
     const requiredFields = [
-        'positionIdx','tradeMode','riskId','riskLimitValue','symbol','side','size',
-        'sessionAvgPrice','leverage','positionValue','positionBalance','markPrice','positionIM','positionMM',
-        'positionIMByMp','positionMMByMp','takeProfit','stopLoss','trailingStop','unrealisedPnl','cumRealisedPnl',
-        'curRealisedPnl','createdTime','updatedTime','tpslMode','liqPrice','bustPrice','positionStatus',
-        'adlRankIndicator','autoAddMargin','leverageSysUpdatedTime','mmrSysUpdatedTime','seq','isReduceOnly'
+        'positionIdx', 'tradeMode', 'riskId', 'riskLimitValue', 'symbol', 'side', 'size',
+        'sessionAvgPrice', 'leverage', 'positionValue', 'positionBalance', 'markPrice', 'positionIM', 'positionMM',
+        'positionIMByMp', 'positionMMByMp', 'takeProfit', 'stopLoss', 'trailingStop', 'unrealisedPnl', 'cumRealisedPnl',
+        'curRealisedPnl', 'createdTime', 'updatedTime', 'tpslMode', 'liqPrice', 'bustPrice', 'positionStatus',
+        'adlRankIndicator', 'autoAddMargin', 'leverageSysUpdatedTime', 'mmrSysUpdatedTime', 'seq', 'isReduceOnly'
     ];
 
     for (const field of requiredFields) {
@@ -81,8 +81,10 @@ export function mapPositionV5ToPositionData(rawPos: any): PositionData {
 
 export class Market {
     readonly symbol: string;
+    private instrumentInfo: InstrumentInfo | undefined = undefined;
 
     private positions: Map<string, PositionData> = new Map();
+
     private orders: Map<string, OrderData> = new Map();
 
     // Индикаторный менеджер для всех индикаторов и периодов
@@ -90,29 +92,65 @@ export class Market {
 
     private candlesIndicators: Map<string, CandlesIndicator> = new Map();
 
-    private maxCandles: number;
+    private intervals;
 
-    private instrumentInfo: InstrumentInfo | undefined = undefined;
+    private candleHistoryLimit: number;
 
-    constructor(symbol: string) {
-        this.symbol = symbol;
-        const intervalsFromConfig = MarketsConfig.find(market => market.symbol === symbol)?.tradeIntervals ?? [];
-        if (!intervalsFromConfig) {
+    private candleInitLimit: number;
+
+    constructor(config : MarketConfig) {
+        if (!config) throw new Error(`No config for market initialization`);
+
+        this.symbol = config.symbol;
+
+        this.intervals = toIntervalArray(config.tradeIntervals);
+
+        if (!this.intervals || this.intervals.length == 0) {
             throw new Error('Входной массив интервалов не может быть пустым');
         }
 
-        const marketConfig = MarketsConfig.find(m => m.symbol === symbol);
-        if (!marketConfig) throw new Error(`No config for ${symbol}`);
+        this.candleHistoryLimit = config.candleHistoryLimit;
+        if (!this.candleHistoryLimit || this.candleHistoryLimit < 0) {
+            throw new Error('Количество хранящихся свечей не может быть меньше 0');
+        }
 
-        const intervals = toIntervalArray(intervalsFromConfig);
-        intervals.forEach(interval => {
-            this.candlesIndicators.set(interval, new CandlesIndicator(marketConfig.candleHistoryLimit));
+        this.candleInitLimit = config.candleInitLimit;
+        if (!this.candleInitLimit || this.candleInitLimit < 0) {
+            throw new Error('Количество свечей для загрузке через REST не может быть меньше 0');
+        }
 
-            this.indicatorsManager.registerIndicator(interval, 'macd', new MacdIndicator(marketConfig.macdConfig));
-            this.indicatorsManager.registerIndicator(interval, 'ema14', new MultiPeriodEma(marketConfig.emaConfig));
-            this.indicatorsManager.registerIndicator(interval, 'maCross', new MultiPeriodMaCross(marketConfig.maCrossConfig));
+        this.intervals.forEach(interval => {
+            this.candlesIndicators.set(interval, new CandlesIndicator(config.candleHistoryLimit));
+            this.indicatorsManager.registerIndicator(interval, 'macd', new MacdIndicator(config.macdConfig));
+            this.indicatorsManager.registerIndicator(interval, 'ema14', new MultiPeriodEma(config.emaConfig));
+            this.indicatorsManager.registerIndicator(interval, 'maCross', new MultiPeriodMaCross(config.maCrossConfig));
         });
-        this.maxCandles = MarketsConfig.find(market => market.symbol === symbol)?.candleHistoryLimit || 100;
+    }
+
+
+
+    /**
+     * Загружает свечи для указанных интервалов рынка.
+     * Для каждого интервала вызывает loadCandlesFromRest.
+     * Обрабатывает ошибки загрузки по каждому интервалу отдельно.
+     *
+     * @param fetchCandles - функция загрузки свечей
+     * @param intervals - список интервалов, для которых нужно загрузить свечи
+     */
+    async loadAllIntervalsCandles(
+        fetchCandles: (symbol: string, interval: Interval, limit: number) => Promise<Candle[]>
+    ): Promise<void> {
+        if (!this.intervals || this.intervals.length === 0) {
+            throw new Error(`[${this.symbol}] Ошибка: список интервалов пуст`);
+        }
+
+        for (const interval of this.intervals) {
+            try {
+                await this.loadCandlesFromRest(interval, fetchCandles);
+            } catch (err) {
+                Logger.error(`[${this.symbol}] Ошибка загрузки свечей для интервала ${interval}:`, err);
+            }
+        }
     }
 
     async loadCandlesFromRest(
@@ -120,8 +158,8 @@ export class Market {
         fetchCandles: (symbol: string, interval: Interval, limit: number) => Promise<Candle[]>
     ) {
         try {
-            const recentCandles = await fetchCandles(this.symbol, interval, this.maxCandles);
-            const cappedCandles = recentCandles.slice(-this.maxCandles);
+            const recentCandles = await fetchCandles(this.symbol, interval, this.candleInitLimit);
+            const cappedCandles = recentCandles.slice(-this.candleHistoryLimit);
 
             this.candlesIndicators.get(interval)?.bulkUpdate(cappedCandles);
 
@@ -143,7 +181,7 @@ export class Market {
         const candlesIndicator = this.candlesIndicators.get(interval);
 
         if (candlesIndicator) {
-            candlesIndicator.update( {
+            candlesIndicator.update({
                 startTime: Number(candleData.start),
                 open: Number(candleData.open),
                 high: Number(candleData.high),
